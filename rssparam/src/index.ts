@@ -65,7 +65,7 @@ const wrapHTML = (content) => `
     body { font-family: system-ui, sans-serif; line-height: 1.6; max-width: 700px; margin: 2rem auto; padding: 1rem; background: #f4f4f7; color: #333; }
     article { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 2rem; }
     h2 { margin-top: 0; line-height: 1.2; }
-    .description { color: #555; margin-bottom: 1.5rem; }
+    .description { color: #555; margin-bottom: 1.5rem; overflow-wrap: anywhere; word-break: break-word; }
     .btn { background: #0070f3; color: white; text-decoration: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: bold; display: inline-block; }
   </style>
 </head>
