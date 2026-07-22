@@ -1,9 +1,9 @@
 export default {
-  async fetch(request) {
+  async fetch(request: Request) {
     // 1. Parse URL parameters from the request
     const { searchParams } = new URL(request.url);
     const rssUrls = searchParams.getAll('rss');
-    const count = parseInt(searchParams.get('count')) || 1;
+    const count = parseInt(searchParams.get('count') ?? '1') || 1;
 
     // 2. Default landing page if no RSS param is provided
     if (!rssUrls.length) {
@@ -42,7 +42,7 @@ async function fetchFeedSection(rssUrl: string, count: number) {
     for (let item of items) {
       const title = extract(item, 'title');
       const link = extract(item, 'link');
-      const desc = extract(item, 'description');
+      const desc = decodeEntities(extract(item, 'description'));
 
       itemsHtml += `
           <article>
@@ -63,38 +63,100 @@ async function fetchFeedSection(rssUrl: string, count: number) {
       </section>`;
 
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     return `
       <section>
         <h2>Error fetching ${rssUrl}</h2>
-        <p>${e.message}</p>
+        <p>${message}</p>
       </section>`;
   }
 }
 
 // Helper to extract XML tags (handles CDATA and simple tags)
-function extract(str, tag) {
+function extract(str: string, tag: string): string {
   const regex = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i');
   const match = str.match(regex);
   return match ? match[1].trim() : '';
 }
 
+// Some feeds encode their HTML content as HTML entities inside <description>
+// (e.g. "&lt;ul&gt;...&lt;/ul&gt;") instead of embedding raw markup like CDATA
+// feeds do. Since we don't run a real XML parser, those entities are never
+// unescaped, so the browser just prints the literal "<ul>" text instead of
+// rendering it. Decode them once here so the resulting markup renders properly.
+function decodeEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_: string, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_: string, dec: string) => String.fromCodePoint(parseInt(dec, 10)));
+}
+
 // Minimal CSS/Template
-const wrapHTML = (content) => `
+const wrapHTML = (content: string) => `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <style>
-    body { font-family: system-ui, sans-serif; line-height: 1.6; max-width: 960px; margin: 2rem auto; padding: 1rem; background: #f4f4f7; color: #333; }
-    .feed-grid { column-width: 380px; column-gap: 1.5rem; display: block; }
-    .feed-grid > section { break-inside: avoid; margin-bottom: 1.5rem; display: inline-block; width: 100%; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; line-height: 1.6; margin: 2rem 25px; padding: 0; background: #f4f4f7; color: #333; }
+    .feed-grid { position: relative; }
+    .feed-grid > section { position: absolute; top: 0; left: 0; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); box-sizing: border-box; }
     h2 { margin-top: 0; line-height: 1.2; }
     h3 { margin-bottom: 0.5rem; }
-    .description { color: #555; margin-bottom: 1.5rem; overflow-wrap: anywhere; word-break: break-word; }
+    .description { color: #555; margin-bottom: 1.5rem; overflow-wrap: anywhere; word-break: break-word; max-height: 420px; overflow-y: auto; padding-right: 0.5rem; }
     .btn { background: #0070f3; color: white; text-decoration: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: bold; display: inline-block; }
   </style>
 </head>
-<body>${content}</body>
+<body>${content}
+<script>
+(function () {
+  var CARD_WIDTH = 440;
+  var GAP = 24; // matches 1.5rem at default 16px root font-size
+
+  function layoutMasonry(container, items) {
+    var containerWidth = container.clientWidth;
+    var colCount = Math.max(1, Math.floor((containerWidth + GAP) / (CARD_WIDTH + GAP)));
+    var colWidth = (containerWidth - GAP * (colCount - 1)) / colCount;
+    var colHeights = new Array(colCount).fill(0);
+
+    items.forEach(function (item) {
+      item.style.width = colWidth + 'px';
+
+      var col = 0;
+      for (var i = 1; i < colCount; i++) {
+        if (colHeights[i] < colHeights[col]) col = i;
+      }
+
+      item.style.left = Math.round(col * (colWidth + GAP)) + 'px';
+      item.style.top = Math.round(colHeights[col]) + 'px';
+      colHeights[col] += item.getBoundingClientRect().height + GAP;
+    });
+
+    container.style.height = (Math.max.apply(null, colHeights) - GAP) + 'px';
+  }
+
+  document.querySelectorAll('.feed-grid').forEach(function (container) {
+    var items = Array.prototype.slice.call(container.children);
+
+    layoutMasonry(container, items);
+
+    var lastWidth = container.clientWidth;
+    var observer = new ResizeObserver(function (entries) {
+      var newWidth = Math.round(entries[0].contentRect.width);
+      if (newWidth !== lastWidth) {
+        lastWidth = newWidth;
+        layoutMasonry(container, items);
+      }
+    });
+    observer.observe(container);
+  });
+})();
+</script>
+</body>
 </html>`;
 
 const landingPageHTML = wrapHTML(`
